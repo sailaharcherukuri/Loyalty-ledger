@@ -1,0 +1,21 @@
+customer_id,customer_code,full_name,email,created_at
+1,LOY-000001,Sara Nair,customer000001@example.test,2024-01-01 00:00:00
+2,LOY-000002,Riya Mehta,customer000002@example.test,2024-01-01 00:00:00
+3,LOY-000003,Anaya Bose,customer000003@example.test,2024-01-01 00:00:00
+4,LOY-000004,Arjun Kapoor,customer000004@example.test,2024-01-01 00:00:00
+5,LOY-000005,Arjun Bose,customer000005@example.test,2024-01-01 00:00:00
+6,LOY-000006,Vivaan Shah,customer000006@example.test,2024-01-01 00:00:00
+7,LOY-000007,Anaya Bose,customer000007@example.test,2024-01-01 00:00:00
+8,LOY-000008,Arjun Kapoor,customer000008@example.test,2024-01-01 00:00:00
+9,LOY-000009,Diya Verma,customer000009@example.test,2024-01-01 00:00:00
+10,LOY-000010,Vivaan Verma,customer000010@example.test,2024-01-01 00:00:00
+11,LOY-000011,Riya Das,customer000011@example.test,2024-01-01 00:00:00
+12,LOY-000012,Vivaan Kapoor,customer000012@example.test,2024-01-01 00:00:00
+13,LOY-000013,Anaya Shah,customer000013@example.test,2024-01-01 00:00:00
+14,LOY-000014,Aditi Kapoor,customer000014@example.test,2024-01-01 00:00:00
+15,LOY-000015,Riya Rao,customer000015@example.test,2024-01-01 00:00:00
+16,LOY-000016,Aarav Singh,customer000016@example.test,2024-01-01 00:00:00
+17,LOY-000017,Aditi Nair,customer000017@example.test,2024-01-01 00:00:00
+18,LOY-000018,Anaya Singh,customer000018@example.test,2024-01-01 00:00:00
+19,LOY-000019,Isha Rao,customer000019@example.test,2024-01-01 00:00:00
+20,LOY-000020,Aarav Bose,customer000020@example.test,2024-01-01 00:00:00

@@ -1,0 +1,72 @@
+[
+  {
+    "case_id": "EDGE-001",
+    "issue_type": "BALANCE_LEDGER_MISMATCH",
+    "ground_truth_label": "RECONCILIATION_REQUIRED",
+    "input": {
+      "ledger_sum": 9,
+      "account_balance": 10
+    },
+    "expected_decision": "Flag the account for reconciliation; do not silently overwrite either value."
+  },
+  {
+    "case_id": "EDGE-002",
+    "issue_type": "REDEMPTION_EXCEEDS_AVAILABLE",
+    "ground_truth_label": "REJECT_WITHOUT_WRITES",
+    "input": {
+      "available_points": 5,
+      "requested_points": 8
+    },
+    "expected_decision": "Reject the redemption and write no redemption or ledger event."
+  },
+  {
+    "case_id": "EDGE-003",
+    "issue_type": "RETURN_WITHOUT_REVERSAL",
+    "ground_truth_label": "MISSING_REVERSAL",
+    "input": {
+      "earned_points": 10,
+      "refund_amount": "100.00",
+      "order_total": "100.00",
+      "reversed_points": 0
+    },
+    "expected_decision": "Flag the missing reversal; the expected reversal is 10 points."
+  },
+  {
+    "case_id": "EDGE-004",
+    "issue_type": "DUPLICATE_EXPIRY",
+    "ground_truth_label": "IDEMPOTENT_NOOP_ON_REPEAT",
+    "input": {
+      "lot_id": 42,
+      "points_remaining": 6,
+      "expiry_events": [
+        -6,
+        -6
+      ]
+    },
+    "expected_decision": "Accept one expiry of 6 points; make the repeated expiry a no-op."
+  },
+  {
+    "case_id": "EDGE-005",
+    "issue_type": "TIER_USES_GROSS_SPEND",
+    "ground_truth_label": "BASIC_TIER",
+    "input": {
+      "gross_spend": "6000.00",
+      "qualifying_net_spend": "4000.00",
+      "silver_threshold": "5000.00"
+    },
+    "expected_decision": "Keep Basic tier because qualifying net spend is below the Silver threshold."
+  },
+  {
+    "case_id": "EDGE-006",
+    "issue_type": "CONCURRENT_REDEMPTION_ATTEMPTS",
+    "ground_truth_label": "ONE_ACCEPT_ONE_REJECT",
+    "input": {
+      "available_points": 10,
+      "simultaneous_requests": [
+        8,
+        8
+      ]
+    },
+    "expected_decision": "Serialize account updates; accept at most one request and reject the other."
+  }
+]

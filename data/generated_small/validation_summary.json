@@ -1,0 +1,43 @@
+{
+  "checks": {
+    "account_balances_equal_ledger_sums": {
+      "customers_checked": 20,
+      "passed": true
+    },
+    "arithmetic_and_date_ordering_valid": {
+      "passed": true
+    },
+    "available_points_equal_open_lot_sums": {
+      "customers_checked": 20,
+      "passed": true
+    },
+    "business_ids_and_idempotency_keys_unique": {
+      "passed": true
+    },
+    "expired_lots_closed": {
+      "passed": true
+    },
+    "foreign_key_parent_references_present": {
+      "passed": true
+    },
+    "lifecycle_events_audited": {
+      "event_counts": {
+        "ACCRUED": 100,
+        "EXPIRED": 50,
+        "REDEEMED": 100,
+        "RETURN_COMPLETED": 50
+      },
+      "passed": true
+    },
+    "point_transaction_volume": {
+      "actual": 300,
+      "expected": 300,
+      "passed": true
+    },
+    "transaction_ids_unique": {
+      "passed": true,
+      "rows_checked": 300
+    }
+  },
+  "passed": true
+}

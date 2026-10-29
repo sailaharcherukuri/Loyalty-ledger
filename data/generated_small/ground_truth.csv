@@ -1,0 +1,7 @@
+case_id,issue_type,ground_truth_label,expected_decision
+EDGE-001,BALANCE_LEDGER_MISMATCH,RECONCILIATION_REQUIRED,Flag the account for reconciliation; do not silently overwrite either value.
+EDGE-002,REDEMPTION_EXCEEDS_AVAILABLE,REJECT_WITHOUT_WRITES,Reject the redemption and write no redemption or ledger event.
+EDGE-003,RETURN_WITHOUT_REVERSAL,MISSING_REVERSAL,Flag the missing reversal; the expected reversal is 10 points.
+EDGE-004,DUPLICATE_EXPIRY,IDEMPOTENT_NOOP_ON_REPEAT,Accept one expiry of 6 points; make the repeated expiry a no-op.
+EDGE-005,TIER_USES_GROSS_SPEND,BASIC_TIER,Keep Basic tier because qualifying net spend is below the Silver threshold.
+EDGE-006,CONCURRENT_REDEMPTION_ATTEMPTS,ONE_ACCEPT_ONE_REJECT,Serialize account updates; accept at most one request and reject the other.

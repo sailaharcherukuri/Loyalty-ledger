@@ -1,0 +1,100 @@
+{
+  "as_of_date": "2026-10-28",
+  "customers_requested": 20,
+  "dataset_name": "loyalty-ledger-synthetic",
+  "files": {
+    "account_tier_history.csv": {
+      "rows": 48,
+      "sha256": "6f52bd22b49f6723bee9d68b721ce71acdb99885e6de9d162d869dbaa59be467"
+    },
+    "audit_events.csv": {
+      "rows": 328,
+      "sha256": "d9e4877b6175cf5ccb98cd399d04f750cba4bece316f52af2fe3d2b76f17f5ef"
+    },
+    "customers.csv": {
+      "rows": 20,
+      "sha256": "add27580574d65f2b5f1409c4777e3c3e50ce878ace6752afe4646c67d729227"
+    },
+    "edge_cases.json": {
+      "rows": 6,
+      "sha256": "07d483ba14c17a166b76838ad7975231e63e652caacdf3c7630dd33a5e60fc3c"
+    },
+    "expiry_batch_details.csv": {
+      "rows": 50,
+      "sha256": "dcb85b3547c83913eb433398a7a74673c66746d770a5eb587154781fdd0b60e5"
+    },
+    "expiry_batches.csv": {
+      "rows": 1,
+      "sha256": "417cac58675cd385aef3edf4836f8bcb124bd3dbf555684bfe207504072ae026"
+    },
+    "ground_truth.csv": {
+      "rows": 6,
+      "sha256": "15e8dc9d272d4d612baa22a1fb4a902af2e2870d80040e52ce5633f2cf02f447"
+    },
+    "id_sequences.csv": {
+      "rows": 3,
+      "sha256": "b0dc104626f369f3c9aa1dae9941e1a7b3a21aedf9f35db09ff5d4f7e5673820"
+    },
+    "load_generated_data.sql": {
+      "rows": null,
+      "sha256": "7bc7c27dc1920529a49bd2a75219d4ff885a1f8b18466020f93a18a4ee02d17d"
+    },
+    "lot_consumptions.csv": {
+      "rows": 100,
+      "sha256": "62e1354bdff412b6b4935601205032188b9917939106e11a949531a5ababdf3e"
+    },
+    "loyalty_accounts.csv": {
+      "rows": 20,
+      "sha256": "54d517e4f08b1271943b54b113a0c89ddbe03d2f250a6b21b8ef13fb8d5fcd33"
+    },
+    "order_lines.csv": {
+      "rows": 100,
+      "sha256": "2f06e2367a8bba2abc5d4c54d077abb1493f74b65da6e3868622a72997c2ad74"
+    },
+    "order_returns.csv": {
+      "rows": 50,
+      "sha256": "1e4c61f40f0bb39a8a880cb951a40d5ab249b4ce86a8372db4039dd3d3c1de26"
+    },
+    "orders.csv": {
+      "rows": 100,
+      "sha256": "60fa5c627ae24808664d17ba97d7d5c2cf0c621cb3cea92051bed5d24c88cc29"
+    },
+    "point_lots.csv": {
+      "rows": 100,
+      "sha256": "ca531da3619b2bb9668c36dd54e368359b176d57eda0d554c68037c658864e4e"
+    },
+    "points_transactions.csv": {
+      "rows": 300,
+      "sha256": "9ab8802b059ca365f571d9d425a3725cddd34cba25efbe357088faa9196800b1"
+    },
+    "redemptions.csv": {
+      "rows": 100,
+      "sha256": "41e5bcf307800758e7cf33bed94187fccdae4995724030fc8c08efe827173c35"
+    },
+    "rewards.csv": {
+      "rows": 2,
+      "sha256": "1e7d127698302bca77a7a809d118f8475cdfe2f58ee0d3c21690884f6f018bf2"
+    },
+    "rules.csv": {
+      "rows": 3,
+      "sha256": "7ec0cdc06b769596bd91c6e742c7364d24529c2719cde312396d0c1c3db7a17e"
+    },
+    "tiers.csv": {
+      "rows": 3,
+      "sha256": "acbe342e277ba0e7d328923872c5dc199e8ae72bed0fc232135dc1e433647790"
+    },
+    "validation_summary.json": {
+      "rows": null,
+      "sha256": "d4b32aef5e1c8f6c5a84795310d26599b4e983479107f85b6870440727ae1476"
+    }
+  },
+  "generation_notes": [
+    "All baseline data is synthetic and uses example.test email addresses.",
+    "Returns and expiry events are derived from generated source records.",
+    "Accrual, redemption, return, expiry, and tier events are recorded in audit_events.",
+    "Edge-case fixtures and ground-truth labels are separate from baseline tables."
+  ],
+  "orders_requested": 100,
+  "point_transactions_expected": 300,
+  "seed": 20261022
+}
