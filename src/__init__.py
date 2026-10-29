@@ -1,0 +1,1 @@
+"""Loyalty Ledger application package."""
