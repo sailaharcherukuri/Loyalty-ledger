@@ -1,0 +1,57 @@
+{
+  "checked_on": "2026-10-28",
+  "local_mysql_reconciliation": {
+    "passed": true,
+    "checks": {
+      "balance_ledger_mismatches": 0,
+      "available_lot_balance_mismatches": 0,
+      "accruals_missing_lots": 0,
+      "completed_refunds_over_order_total": 0,
+      "duplicate_order_accruals": 0,
+      "expired_lots_still_open": 0,
+      "invalid_lot_balances": 0
+    },
+    "opening_balance_repair_remaining_mismatches": 0
+  },
+  "automated_tests": {
+    "run_on": "2026-10-28",
+    "command": "python -m unittest discover -s tests -v",
+    "passed": true,
+    "tests_run": 26,
+    "failures": 0,
+    "errors": 0,
+    "database_tests_used_temporary_schema": true,
+    "csv_loader_test_passed": true,
+    "mysql_local_infile_restored_to": "OFF"
+  },
+  "migration_validation": {
+    "synthetic_legacy_schema_fixture": "passed",
+    "pre_v2_backup_clone": "passed",
+    "opening_balance_repair_repeatable": true,
+    "account_ledger_mismatches_after_repair": 0,
+    "temporary_databases_dropped": true
+  },
+  "synthetic_data_integrity": {
+    "full": {
+      "customers": 20000,
+      "orders": 100000,
+      "point_transactions": 300000,
+      "passed": true,
+      "checks_passed": 9,
+      "manifest_hashes_match": true,
+      "regenerated_twice_with_identical_manifest": true,
+      "details": "data/generated/validation_summary.json"
+    },
+    "small": {
+      "customers": 20,
+      "orders": 100,
+      "point_transactions": 300,
+      "passed": true,
+      "checks_passed": 9,
+      "manifest_hashes_match": true,
+      "regenerated_twice_with_identical_manifest": true,
+      "details": "data/generated_small/validation_summary.json"
+    }
+  },
+  "scope_note": "These are local automated-test, database-reconciliation, migration, and generated-data integrity results. They do not claim a hosted deployment."
+}
