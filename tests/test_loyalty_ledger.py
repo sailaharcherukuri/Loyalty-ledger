@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from db import get_connection  # noqa: E402
 from expiry_service import expire_points  # noqa: E402
-from generate_data import make_ground_truth  # noqa: E402
+from generate_data import generate, make_ground_truth  # noqa: E402
 from loyalty_service import award_points, calculate_points, complete_return  # noqa: E402
 from redeem_points import redeem_points  # noqa: E402
 from validate_data import validate_data  # noqa: E402
@@ -87,6 +87,11 @@ class SyntheticDataTests(unittest.TestCase):
         self.assertEqual(len({case["issue_type"] for case in cases}), 6)
         self.assertTrue(all(case["ground_truth_label"] for case in cases))
         self.assertTrue(all(case["expected_decision"] for case in cases))
+        for case in cases:
+            with self.subTest(case_id=case["case_id"]):
+                self.assertTrue(hasattr(
+                    MySQLWorkflowTests, case["verification_test"]
+                ))
 
     def test_same_seed_produces_identical_small_dataset(self):
         with tempfile.TemporaryDirectory(prefix="loyalty-ledger-repro-") as folder:
@@ -141,6 +146,25 @@ class SyntheticDataTests(unittest.TestCase):
                     f"Incorrect ID format in {filename}",
                 )
 
+    def test_loader_paths_follow_each_output_directory(self):
+        with tempfile.TemporaryDirectory(prefix="loyalty-ledger-paths-") as folder:
+            root = Path(folder)
+            outputs = [root / "first", root / "second"]
+            manifests = []
+            for output_dir in outputs:
+                manifests.append(generate(2, 4, 42, output_dir))
+            shared_files = set(manifests[0]["files"]) & set(manifests[1]["files"])
+            shared_files.discard("load_generated_data.sql")
+            shared_files.discard("manifest.json")
+            for name in shared_files:
+                self.assertEqual(manifests[0]["files"][name]["sha256"],
+                                 manifests[1]["files"][name]["sha256"])
+            for output_dir in outputs:
+                loader = (output_dir / "load_generated_data.sql").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn((output_dir / "customers.csv").resolve().as_posix(), loader)
+
 
 class MigrationTests(unittest.TestCase):
     """Exercise the one-time upgrade and repeat-safe balance repair on fake data."""
@@ -178,6 +202,16 @@ class MigrationTests(unittest.TestCase):
             _execute_script(
                 connection,
                 (ROOT / "sql" / "migrate_v2.sql").read_text(encoding="utf-8"),
+                cls.test_database,
+            )
+            _execute_script(
+                connection,
+                (ROOT / "sql" / "migrate_v3.sql").read_text(encoding="utf-8"),
+                cls.test_database,
+            )
+            _execute_script(
+                connection,
+                (ROOT / "sql" / "migrate_v3.sql").read_text(encoding="utf-8"),
                 cls.test_database,
             )
             repair_rows = _execute_script(
@@ -221,7 +255,7 @@ class MigrationTests(unittest.TestCase):
                 cursor.close()
                 cls.admin.close()
 
-    def test_upgrade_adds_v2_columns_and_backfills_accrual_lots(self):
+    def test_upgrade_adds_v3_schema_and_backfills_legacy_accrual_lots(self):
         connection = get_connection()
         cursor = connection.cursor(dictionary=True)
         try:
@@ -255,6 +289,32 @@ class MigrationTests(unittest.TestCase):
                 "WHERE idempotency_key = 'OPENING-BALANCE-CUSTOMER-1'"
             )
             self.assertEqual(cursor.fetchone()["adjustment_count"], 1)
+            cursor.execute(
+                "SELECT COUNT(*) AS tier_rule_count FROM rules WHERE tier_id IS NOT NULL"
+            )
+            self.assertEqual(cursor.fetchone()["tier_rule_count"], 3)
+            cursor.execute(
+                """SELECT COUNT(*) AS metadata_columns
+                   FROM information_schema.COLUMNS
+                   WHERE TABLE_SCHEMA = DATABASE()
+                     AND TABLE_NAME = 'points_transactions'
+                     AND COLUMN_NAME IN ('rule_id', 'earning_rate', 'eligible_spend')"""
+            )
+            self.assertEqual(cursor.fetchone()["metadata_columns"], 3)
+            cursor.execute(
+                """SELECT COUNT(*) AS allocation_table_count
+                   FROM information_schema.TABLES
+                   WHERE TABLE_SCHEMA = DATABASE()
+                     AND TABLE_NAME = 'reversal_lot_allocations'"""
+            )
+            self.assertEqual(cursor.fetchone()["allocation_table_count"], 1)
+            cursor.execute(
+                """SELECT DATETIME_PRECISION FROM information_schema.COLUMNS
+                   WHERE TABLE_SCHEMA = DATABASE()
+                     AND TABLE_NAME = 'points_transactions'
+                     AND COLUMN_NAME = 'transaction_date'"""
+            )
+            self.assertEqual(cursor.fetchone()["DATETIME_PRECISION"], 6)
         finally:
             cursor.close()
             connection.close()
@@ -408,7 +468,7 @@ class MySQLWorkflowTests(unittest.TestCase):
                 "INSERT INTO points_transactions "
                 "(transaction_id, customer_id, transaction_type, points_change, "
                 "transaction_date, description, idempotency_key) "
-                "VALUES (%s, %s, 'ADJUSTMENT', %s, NOW(), 'Test fixture', %s)",
+                "VALUES (%s, %s, 'ADJUSTMENT', %s, NOW(6), 'Test fixture', %s)",
                 (transaction_id, self.customer_id, points,
                  f"TEST:{self.customer_id}:{suffix}"),
             )
@@ -416,7 +476,7 @@ class MySQLWorkflowTests(unittest.TestCase):
                 "INSERT INTO point_lots "
                 "(customer_id, source_transaction_id, points_earned, points_remaining, "
                 "earned_at, expires_at, lot_status) "
-                "VALUES (%s, %s, %s, %s, NOW(), %s, 'ACTIVE')",
+                "VALUES (%s, %s, %s, %s, NOW(6), %s, 'ACTIVE')",
                 (self.customer_id, transaction_id, points, points, expires_at),
             )
             cursor.execute(
@@ -444,6 +504,11 @@ class MySQLWorkflowTests(unittest.TestCase):
         order_id = self._create_order(1000, line=(2, 500, 100, True))
         result = award_points(order_id)
         self.assertEqual(result["points"], 9)
+        applied_rule = self._query(
+            "SELECT rule_id, earning_rate, eligible_spend FROM points_transactions "
+            "WHERE transaction_id = %s", (result["transaction_id"],),
+        )[0]
+        self.assertEqual(applied_rule, (1, Decimal("1.00"), Decimal("900.00")))
         self.assertEqual(self._query(
             "SELECT current_points FROM loyalty_accounts WHERE customer_id = %s",
             (self.customer_id,),
@@ -481,7 +546,7 @@ class MySQLWorkflowTests(unittest.TestCase):
             cursor.execute(
                 "INSERT INTO order_returns "
                 "(return_id, order_id, return_date, refund_amount, return_status) "
-                "VALUES (%s, %s, NOW(), 500, 'REQUESTED')",
+                "VALUES (%s, %s, NOW(6), 500, 'REQUESTED')",
                 (return_id, order_id),
             )
             connection.commit()
@@ -657,7 +722,7 @@ class MySQLWorkflowTests(unittest.TestCase):
             cursor.executemany(
                 "INSERT INTO order_returns "
                 "(return_id, order_id, return_date, refund_amount, return_status) "
-                "VALUES (%s, %s, NOW(), %s, 'REQUESTED')",
+                "VALUES (%s, %s, NOW(6), %s, 'REQUESTED')",
                 [(first_return, order_id, 200), (second_return, order_id, 300)],
             )
             connection.commit()
@@ -679,6 +744,59 @@ class MySQLWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Only a requested return"):
             complete_return(first_return)
 
+    def test_return_before_accrual_is_netted_from_earned_points(self):
+        order_id = self._create_order(500)
+        return_id = f"RET-T-{self.customer_id}-PRE"
+        connection = get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO order_returns "
+                "(return_id, order_id, return_date, refund_amount, return_status) "
+                "VALUES (%s, %s, NOW(6), 200, 'REQUESTED')",
+                (return_id, order_id),
+            )
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+        result = complete_return(return_id)
+        self.assertEqual(result["points_reversed"], 0)
+        accrual = award_points(order_id)
+        self.assertEqual(accrual["points"], 3)
+        self.assertEqual(self._query(
+            "SELECT eligible_spend FROM points_transactions "
+            "WHERE transaction_id = %s", (accrual["transaction_id"],),
+        )[0][0], Decimal("300.00"))
+        self.assertEqual(self._query(
+            "SELECT COUNT(*) FROM points_transactions "
+            "WHERE order_id = %s AND transaction_type = 'REVERSAL'", (order_id,),
+        )[0][0], 0)
+
+    def test_full_return_before_accrual_cannot_earn_points(self):
+        order_id = self._create_order(500)
+        return_id = f"RET-T-{self.customer_id}-FULLPRE"
+        connection = get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO order_returns "
+                "(return_id, order_id, return_date, refund_amount, return_status) "
+                "VALUES (%s, %s, NOW(6), 500, 'REQUESTED')",
+                (return_id, order_id),
+            )
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+        complete_return(return_id)
+        with self.assertRaisesRegex(ValueError, "Only completed orders"):
+            award_points(order_id)
+        self.assertEqual(self._query(
+            "SELECT COUNT(*) FROM points_transactions WHERE order_id = %s", (order_id,),
+        )[0][0], 0)
+
     def test_completed_refunds_cannot_exceed_order_total(self):
         order_id = self._create_order(500)
         award_points(order_id)
@@ -688,7 +806,7 @@ class MySQLWorkflowTests(unittest.TestCase):
             cursor.executemany(
                 "INSERT INTO order_returns "
                 "(return_id, order_id, return_date, refund_amount, return_status) "
-                "VALUES (%s, %s, NOW(), %s, 'REQUESTED')",
+                "VALUES (%s, %s, NOW(6), %s, 'REQUESTED')",
                 [(f"RET-T-{self.customer_id}-A", order_id, 300),
                  (f"RET-T-{self.customer_id}-B", order_id, 300)],
             )
@@ -715,7 +833,7 @@ class MySQLWorkflowTests(unittest.TestCase):
             cursor.execute(
                 "INSERT INTO order_returns "
                 "(return_id, order_id, return_date, refund_amount, return_status) "
-                "VALUES (%s, %s, NOW(), 500, 'REQUESTED')",
+                "VALUES (%s, %s, NOW(6), 500, 'REQUESTED')",
                 (return_id, order_id),
             )
             connection.commit()
@@ -748,7 +866,7 @@ class MySQLWorkflowTests(unittest.TestCase):
             cursor.execute(
                 "INSERT INTO order_returns "
                 "(return_id, order_id, return_date, refund_amount, return_status) "
-                "VALUES (%s, %s, NOW(), 0, 'REQUESTED')",
+                "VALUES (%s, %s, NOW(6), 0, 'REQUESTED')",
                 (return_id, order_id),
             )
             connection.commit()
@@ -794,6 +912,24 @@ class MySQLWorkflowTests(unittest.TestCase):
             "SELECT COUNT(*) FROM point_lots WHERE customer_id = %s "
             "AND points_remaining > 0", (self.customer_id,),
         )[0][0], 1)
+
+    def test_expiry_date_excludes_next_midnight_until_exact_instant(self):
+        boundary = datetime(2030, 1, 2, 0, 0, 0)
+        transaction_id = self._add_points_lot(
+            4, expires_at=boundary, suffix="BOUNDARY"
+        )
+        expire_points(as_of=date(2030, 1, 1))  # Other customers may also be overdue.
+        lot_id = self._query(
+            "SELECT lot_id FROM point_lots WHERE source_transaction_id = %s",
+            (transaction_id,),
+        )[0][0]
+        self.assertEqual(self._query(
+            "SELECT points_remaining FROM point_lots WHERE lot_id = %s", (lot_id,),
+        )[0][0], 4)
+        expire_points(as_of=boundary)
+        self.assertEqual(self._query(
+            "SELECT points_remaining FROM point_lots WHERE lot_id = %s", (lot_id,),
+        )[0][0], 0)
 
     def test_tier_uses_qualifying_net_spend_then_progresses(self):
         discounted = self._create_order(
@@ -854,6 +990,28 @@ class MySQLWorkflowTests(unittest.TestCase):
             (self.customer_id,),
         )[0][0], 1)
 
+    def test_concurrent_awards_serialize_tier_rule_selection_per_customer(self):
+        baseline = self._create_order(4000, suffix="A")
+        award_points(baseline)
+        first = self._create_order(1000, suffix="B")
+        second = self._create_order(1000, suffix="C")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(award_points, [first, second]))
+        self.assertEqual(sum(result["points"] for result in results), 25)
+        rates = self._query(
+            "SELECT earning_rate FROM points_transactions "
+            "WHERE customer_id = %s AND transaction_type = 'ACCRUAL' "
+            "ORDER BY transaction_date, transaction_id",
+            (self.customer_id,),
+        )
+        self.assertEqual(rates, [(Decimal("1.00"),), (Decimal("1.00"),),
+                                 (Decimal("1.50"),)])
+        account = self._query(
+            "SELECT tier_id, qualifying_spend, current_points "
+            "FROM loyalty_accounts WHERE customer_id = %s", (self.customer_id,),
+        )[0]
+        self.assertEqual(account, (2, Decimal("6000.00"), 65))
+
     def test_validator_detects_a_balance_ledger_mismatch(self):
         connection = get_connection()
         cursor = connection.cursor()
@@ -889,6 +1047,56 @@ class MySQLWorkflowTests(unittest.TestCase):
                 cursor.close()
                 connection.close()
 
+    def test_validator_detects_missing_return_reversal(self):
+        order_id = self._create_order(500)
+        award_points(order_id)
+        return_id = f"RET-T-{self.customer_id}-MISSING"
+        connection = get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO order_returns "
+                "(return_id, order_id, return_date, refund_amount, return_status) "
+                "VALUES (%s, %s, NOW(6), 500, 'REQUESTED')",
+                (return_id, order_id),
+            )
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+        reversal = complete_return(return_id)
+
+        connection = get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "DELETE FROM reversal_lot_allocations "
+                "WHERE reversal_transaction_id = %s", (reversal["transaction_id"],),
+            )
+            cursor.execute(
+                "UPDATE point_lots SET points_remaining = 5, lot_status = 'ACTIVE' "
+                "WHERE source_transaction_id = (SELECT transaction_id "
+                "FROM points_transactions WHERE order_id = %s "
+                "AND transaction_type = 'ACCRUAL')", (order_id,),
+            )
+            cursor.execute(
+                "DELETE FROM points_transactions WHERE transaction_id = %s",
+                (reversal["transaction_id"],),
+            )
+            cursor.execute(
+                "UPDATE loyalty_accounts SET current_points = 5 WHERE customer_id = %s",
+                (self.customer_id,),
+            )
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+        report = validate_data()
+        self.assertFalse(report["passed"])
+        check = report["checks"]["completed_returns_missing_or_wrong_reversals"]
+        self.assertTrue(any(row["return_id"] == return_id for row in check["sample"]))
+
     def test_database_rejects_invalid_order_status_and_orphan_customer(self):
         connection = get_connection()
         cursor = connection.cursor()
@@ -897,7 +1105,7 @@ class MySQLWorkflowTests(unittest.TestCase):
                 cursor.execute(
                     "INSERT INTO orders "
                     "(order_id, customer_id, order_date, total_amount, order_status) "
-                    "VALUES (%s, %s, NOW(), 1, 'NOT_A_STATUS')",
+                    "VALUES (%s, %s, NOW(6), 1, 'NOT_A_STATUS')",
                     (f"ORD-T-{self.customer_id}-BAD", self.customer_id),
                 )
             connection.rollback()
@@ -905,7 +1113,7 @@ class MySQLWorkflowTests(unittest.TestCase):
                 cursor.execute(
                     "INSERT INTO orders "
                     "(order_id, customer_id, order_date, total_amount, order_status) "
-                    "VALUES (%s, 99999999, NOW(), 1, 'COMPLETED')",
+                    "VALUES (%s, 99999999, NOW(6), 1, 'COMPLETED')",
                     (f"ORD-T-{self.customer_id}-ORPHAN",),
                 )
             connection.rollback()

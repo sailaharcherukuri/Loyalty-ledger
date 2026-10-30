@@ -38,10 +38,20 @@ def get_connection():
             + ". See .env.example and the README."
         )
 
-    return mysql.connector.connect(
+    connection = mysql.connector.connect(
         host=os.getenv("LOYALTY_DB_HOST", "localhost"),
         port=int(os.getenv("LOYALTY_DB_PORT", "3306")),
         user=os.environ["LOYALTY_DB_USER"],
         password=os.environ["LOYALTY_DB_PASSWORD"],
         database=os.getenv("LOYALTY_DB_NAME", "loyalty_ledger"),
     )
+    cursor = connection.cursor()
+    try:
+        cursor.execute("SET time_zone = '+00:00'")
+        cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+    except Exception:
+        connection.close()
+        raise
+    finally:
+        cursor.close()
+    return connection

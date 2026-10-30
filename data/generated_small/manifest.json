@@ -4,12 +4,12 @@
   "dataset_name": "loyalty-ledger-synthetic",
   "files": {
     "account_tier_history.csv": {
-      "rows": 48,
-      "sha256": "6f52bd22b49f6723bee9d68b721ce71acdb99885e6de9d162d869dbaa59be467"
+      "rows": 28,
+      "sha256": "cbd12543b77dab9ab0ddb75db08842748bf0cb5d716b0163e11745df4146de73"
     },
     "audit_events.csv": {
-      "rows": 328,
-      "sha256": "d9e4877b6175cf5ccb98cd399d04f750cba4bece316f52af2fe3d2b76f17f5ef"
+      "rows": 308,
+      "sha256": "f5c585bc0f85695e3bd2fe740f22e008450f03230e3ed47b8a0022ce9fba3a22"
     },
     "customers.csv": {
       "rows": 20,
@@ -17,11 +17,11 @@
     },
     "edge_cases.json": {
       "rows": 6,
-      "sha256": "07d483ba14c17a166b76838ad7975231e63e652caacdf3c7630dd33a5e60fc3c"
+      "sha256": "615809bc1d709f444786956259f27684cece365b81f1f202b52cf0f9d8f0a145"
     },
     "expiry_batch_details.csv": {
       "rows": 50,
-      "sha256": "dcb85b3547c83913eb433398a7a74673c66746d770a5eb587154781fdd0b60e5"
+      "sha256": "02a49d6557d78c9409bb8caed3e77dd94dd8b630902b2dd8be344e0e92f43d4d"
     },
     "expiry_batches.csv": {
       "rows": 1,
@@ -29,7 +29,7 @@
     },
     "ground_truth.csv": {
       "rows": 6,
-      "sha256": "15e8dc9d272d4d612baa22a1fb4a902af2e2870d80040e52ce5633f2cf02f447"
+      "sha256": "5da20397644b7b43b14df4d54d73ffc13cb1797ab49e2178c6cd3710884989ad"
     },
     "id_sequences.csv": {
       "rows": 3,
@@ -37,15 +37,15 @@
     },
     "load_generated_data.sql": {
       "rows": null,
-      "sha256": "7bc7c27dc1920529a49bd2a75219d4ff885a1f8b18466020f93a18a4ee02d17d"
+      "sha256": "c2d0ab0861076378da43944aeb180ce643499c3da9051a0881c81e71dd62359b"
     },
     "lot_consumptions.csv": {
       "rows": 100,
-      "sha256": "62e1354bdff412b6b4935601205032188b9917939106e11a949531a5ababdf3e"
+      "sha256": "194e75a8ea78ccb4cd476f1dfd55fff4c545c0a92f73e897d5398b5092f2871f"
     },
     "loyalty_accounts.csv": {
       "rows": 20,
-      "sha256": "54d517e4f08b1271943b54b113a0c89ddbe03d2f250a6b21b8ef13fb8d5fcd33"
+      "sha256": "8ba765d8aa1cc17d3746697f7f7dbcd248b05b2fbb0b59914b73b61b946c5ccc"
     },
     "order_lines.csv": {
       "rows": 100,
@@ -61,15 +61,19 @@
     },
     "point_lots.csv": {
       "rows": 100,
-      "sha256": "ca531da3619b2bb9668c36dd54e368359b176d57eda0d554c68037c658864e4e"
+      "sha256": "0a6bc839c276be509a0ab85a9675fce4f333d7492b486b71c6d1ca6c6b18697a"
     },
     "points_transactions.csv": {
       "rows": 300,
-      "sha256": "9ab8802b059ca365f571d9d425a3725cddd34cba25efbe357088faa9196800b1"
+      "sha256": "cdafad6bcb506b5782ede947a6bac49c2834914d2d151fc7b2b4e3978fb303a5"
     },
     "redemptions.csv": {
       "rows": 100,
-      "sha256": "41e5bcf307800758e7cf33bed94187fccdae4995724030fc8c08efe827173c35"
+      "sha256": "405de3abd24ce4e9bbf1135cbd588e2415ba6b189e8a05a17460f3c2befa5e85"
+    },
+    "reversal_lot_allocations.csv": {
+      "rows": 54,
+      "sha256": "4106e74e9b14b620044e3af4a6ac1caebda6aeabde34f81a6e654aef270ea81f"
     },
     "rewards.csv": {
       "rows": 2,
@@ -77,7 +81,7 @@
     },
     "rules.csv": {
       "rows": 3,
-      "sha256": "7ec0cdc06b769596bd91c6e742c7364d24529c2719cde312396d0c1c3db7a17e"
+      "sha256": "1da297f280478c7415e52b9efc0bd49a870e43c56d59d16e548419c53021e394"
     },
     "tiers.csv": {
       "rows": 3,

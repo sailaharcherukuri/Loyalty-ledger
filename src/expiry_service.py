@@ -1,21 +1,36 @@
 """Expire unspent point lots once per lot and expiry batch."""
 
 import json
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 
 from db import get_connection
 from ids import next_id
 
 
 def expire_points(as_of=None):
-    """Expire all remaining lots due by ``as_of`` (defaults to today).
+    """Expire remaining lots at or before a UTC instant.
+
+    A ``date`` argument means the end of that UTC business date. A ``datetime``
+    argument is an exact, timezone-naive UTC instant. Omitting it uses now.
 
     Returns the batch ID, number of lots processed, and total points expired.
     A lot is reduced to zero in the same transaction as its ledger entry, so a
     repeated run will not expire it again.
     """
     if as_of is None:
-        as_of = date.today()
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None)
+        expiry_date = cutoff.date()
+        cutoff_operator = "<="
+    elif isinstance(as_of, datetime):
+        cutoff = as_of.astimezone(timezone.utc).replace(tzinfo=None) if as_of.tzinfo else as_of
+        expiry_date = cutoff.date()
+        cutoff_operator = "<="
+    elif isinstance(as_of, date):
+        expiry_date = as_of
+        cutoff = datetime.combine(as_of + timedelta(days=1), time.min)
+        cutoff_operator = "<"
+    else:
+        raise TypeError("as_of must be a date, datetime, or None.")
 
     connection = get_connection()
     cursor = connection.cursor()
@@ -26,15 +41,15 @@ def expire_points(as_of=None):
             INSERT INTO expiry_batches (expiry_batch_id, expiry_date, batch_status)
             VALUES (%s, %s, 'PENDING')
             """,
-            (batch_id, as_of),
+            (batch_id, expiry_date),
         )
         cursor.execute(
-            """
+            f"""
             SELECT DISTINCT customer_id FROM point_lots
-            WHERE points_remaining > 0 AND DATE(expires_at) <= %s
+            WHERE points_remaining > 0 AND expires_at {cutoff_operator} %s
             ORDER BY customer_id
             """,
-            (as_of,),
+            (cutoff,),
         )
         customer_ids = [row[0] for row in cursor.fetchall()]
         if customer_ids:
@@ -51,19 +66,20 @@ def expire_points(as_of=None):
             cursor.fetchall()
 
         cursor.execute(
-            """
-            SELECT lot_id, customer_id, source_transaction_id, points_remaining
+            f"""
+            SELECT lot_id, customer_id, source_transaction_id,
+                   points_remaining, expires_at
             FROM point_lots
-            WHERE points_remaining > 0 AND DATE(expires_at) <= %s
+            WHERE points_remaining > 0 AND expires_at {cutoff_operator} %s
             ORDER BY customer_id, expires_at, lot_id
             FOR UPDATE
             """,
-            (as_of,),
+            (cutoff,),
         )
         lots = cursor.fetchall()
         total_points = 0
 
-        for lot_id, customer_id, source_transaction_id, points in lots:
+        for lot_id, customer_id, source_transaction_id, points, expires_at in lots:
             transaction_id = next_id(cursor, "points", "PTS", 8)
             cursor.execute(
                 """
@@ -71,9 +87,9 @@ def expire_points(as_of=None):
                     (transaction_id, customer_id, transaction_type, points_change,
                      transaction_date, description, idempotency_key,
                      related_transaction_id)
-                VALUES (%s, %s, 'EXPIRY', %s, NOW(), %s, %s, %s)
+                VALUES (%s, %s, 'EXPIRY', %s, %s, %s, %s, %s)
                 """,
-                (transaction_id, customer_id, -points,
+                (transaction_id, customer_id, -points, expires_at,
                  f"Expired lot {lot_id}", f"EXPIRY:{lot_id}", source_transaction_id),
             )
             cursor.execute(

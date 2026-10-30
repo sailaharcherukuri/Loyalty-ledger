@@ -1,6 +1,6 @@
 # Loyalty Ledger data dictionary
 
-All monetary amounts are INR with two decimal places. Dates are local business dates; timestamps use `DATETIME`. IDs are immutable. Generated emails use the reserved `example.test` domain. MySQL foreign keys and checks enforce relational and arithmetic constraints where possible.
+All monetary amounts are INR with two decimal places. Effective-date rules use calendar dates; operational timestamps are UTC `DATETIME(6)` values. Point lots are eligible for redemption when `earned_at <= redemption_date < expires_at`. IDs are immutable. Generated emails use the reserved `example.test` domain. MySQL foreign keys and checks enforce relational and arithmetic constraints where possible.
 
 ## Core entities
 
@@ -18,7 +18,7 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 
 | Field | Type | Req. | Rules |
 |---|---|---:|---|
-| `account_id` | INT | Yes | Primary key. |
+| `account_id` | INT | Yes | Primary key; internal account identifier, separate from `customer_id`. |
 | `customer_id` | INT | Yes | Unique foreign key to one customer; enforces 1:1. |
 | `tier_id` | INT | No | Foreign key to the currently earned tier. |
 | `current_points` | INT | Yes | Cached net balance; equals the sum of ledger `points_change`. Can be negative when a return reverses points already spent. |
@@ -39,11 +39,15 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 | Field | Type | Req. | Rules |
 |---|---|---:|---|
 | `rule_id` | INT | Yes | Primary key. |
+| `tier_id` | INT | Yes | Foreign key to the tier this rule governs. |
 | `rule_name` | VARCHAR(100) | Yes | Human-readable rule name. |
 | `points_per_100` | DECIMAL(6,2) | Yes | Non-negative earning rate. |
 | `effective_from` | DATE | Yes | First date the rule applies. |
 | `effective_to` | DATE | No | Last applicable date; not earlier than `effective_from`. |
 | `is_active` | BOOLEAN | Yes | Operational enable/disable flag. |
+
+Rules are unique per tier and effective start date. The newest active rule covering the accrual processing date is applied; each accrual stores its `rule_id`, earning rate, and eligible spend so later rule changes do not rewrite history.
+Legacy accruals upgraded from v2 retain `NULL` for all three metadata fields because the historical applied rule cannot be inferred reliably. New accruals must record all three values.
 
 ### Order (`orders`)
 
@@ -51,7 +55,7 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 |---|---|---:|---|
 | `order_id` | VARCHAR(20) | Yes | Primary key; format `ORD-2026-000001`. |
 | `customer_id` | INT | Yes | Foreign key to the buyer. |
-| `order_date` | DATETIME | Yes | Must precede associated returns and accrual events. |
+| `order_date` | DATETIME(6) | Yes | Business event time; workflows process events in timestamp order. Accrual processing can occur later. |
 | `total_amount` | DECIMAL(12,2) | Yes | INR; at least zero. |
 | `order_status` | ENUM | Yes | `PLACED`, `COMPLETED`, `RETURNED`, or `CANCELLED`; only completed orders earn points. |
 
@@ -76,7 +80,10 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 | `order_id` | VARCHAR(20) | No | Optional foreign key for order accruals and return reversals. |
 | `transaction_type` | ENUM | Yes | `ACCRUAL`, `REDEMPTION`, `EXPIRY`, `REVERSAL`, or `ADJUSTMENT`. |
 | `points_change` | INT | Yes | Signed; positive adds points, negative removes points, never zero. |
-| `transaction_date` | DATETIME | Yes | Time the event was committed. |
+| `transaction_date` | DATETIME(6) | Yes | UTC time the event was committed. |
+| `rule_id` | INT | No | Applied earning rule for an accrual. |
+| `earning_rate` | DECIMAL(6,2) | No | Applied points per ₹100 for an accrual. |
+| `eligible_spend` | DECIMAL(12,2) | No | Eligible net spend used for that accrual. |
 | `description` | VARCHAR(255) | No | Human-readable explanation. |
 | `idempotency_key` | VARCHAR(100) | No | Unique event key; prevents duplicate operations. |
 | `related_transaction_id` | VARCHAR(20) | No | Self-reference to an accrual for its reversal or expiry. |
@@ -117,7 +124,8 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 
 - `point_lots`: one lot per accrual; `points_earned` is the original amount, `points_remaining` is the unspent amount, and `expires_at` controls eligibility. States are `ACTIVE`, `PARTIALLY_USED`, `EXHAUSTED`, `EXPIRED`, and `REVERSED`.
 - `lot_consumptions`: many-to-many bridge between redemptions and point lots; `points_used` is positive. A redemption may consume several lots; a lot may fund several redemptions.
-- `order_returns`: each return references an order and has a non-negative refund plus `REQUESTED`, `COMPLETED`, or `REJECTED` state. Multiple partial returns are allowed while their completed sum stays within the order total.
+- `order_returns`: each return references an order and has a non-negative refund plus `REQUESTED`, `COMPLETED`, or `REJECTED` state. Multiple partial returns are allowed while their completed sum stays within the order total. Refunds are apportioned proportionally to eligible order spend. A refund completed before accrual reduces eligible spend; a later refund creates an incremental reversal.
+- `reversal_lot_allocations`: records which currently available lots were reduced by each return reversal; points already expired are offset instead of being debited a second time.
 - `expiry_batch_details`: one row per lot expired in a batch, unique by `(expiry_batch_id, lot_id)`, linked to its negative ledger transaction.
 - `account_tier_history`: append-only tier transitions with the qualifying spend used for the decision.
 - `audit_events`: timestamped event details for operational review; it does not replace the points ledger.
@@ -130,3 +138,4 @@ All monetary amounts are INR with two decimal places. Dates are local business d
 - Accrual transaction to point lot: 1:1. Redemption to point lots: N:M through `lot_consumptions`.
 - Expiry batch to point lots: 1:N through `expiry_batch_details`; each lot can be expired only once because its remaining points become zero.
 - Business rows use foreign keys; transaction operations use one database transaction so the ledger, cached balance, lot state, and audit record commit or roll back together.
+- Points transactions are append-only. Returns after redemption may make the balance negative when the customer has already spent the points; this debt remains visible in the ledger.

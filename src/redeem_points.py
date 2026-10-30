@@ -1,8 +1,6 @@
 """Redemption service using oldest-expiring-points-first lot consumption."""
 
 import json
-from datetime import date
-
 from db import get_connection
 from ids import next_id
 
@@ -15,6 +13,8 @@ def redeem_points(customer_id, points, reward_id=None):
     connection = get_connection()
     cursor = connection.cursor()
     try:
+        cursor.execute("SELECT UTC_TIMESTAMP(6)")
+        redemption_time = cursor.fetchone()[0]
         cursor.execute(
             """
             SELECT current_points FROM loyalty_accounts
@@ -40,7 +40,7 @@ def redeem_points(customer_id, points, reward_id=None):
                   AND effective_from <= %s
                   AND (effective_to IS NULL OR effective_to >= %s)
                 """,
-                (reward_id, date.today(), date.today()),
+                (reward_id, redemption_time.date(), redemption_time.date()),
             )
             reward = cursor.fetchone()
             if reward is None:
@@ -53,11 +53,12 @@ def redeem_points(customer_id, points, reward_id=None):
             SELECT lot_id, points_remaining
             FROM point_lots
             WHERE customer_id = %s AND points_remaining > 0
-              AND (expires_at IS NULL OR expires_at > NOW())
+              AND earned_at <= %s
+              AND (expires_at IS NULL OR expires_at > %s)
             ORDER BY expires_at IS NULL, expires_at, earned_at, lot_id
             FOR UPDATE
             """,
-            (customer_id,),
+            (customer_id, redemption_time, redemption_time),
         )
         lots = cursor.fetchall()
         available_lots = sum(lot[1] for lot in lots)
@@ -74,9 +75,9 @@ def redeem_points(customer_id, points, reward_id=None):
             INSERT INTO points_transactions
                 (transaction_id, customer_id, transaction_type, points_change,
                  transaction_date, description, idempotency_key)
-            VALUES (%s, %s, 'REDEMPTION', %s, NOW(), %s, %s)
+            VALUES (%s, %s, 'REDEMPTION', %s, %s, %s, %s)
             """,
-            (transaction_id, customer_id, -points,
+            (transaction_id, customer_id, -points, redemption_time,
              f"Redeemed {points} points", f"REDEMPTION:{redemption_id}"),
         )
         cursor.execute(
@@ -84,9 +85,10 @@ def redeem_points(customer_id, points, reward_id=None):
             INSERT INTO redemptions
                 (redemption_id, customer_id, reward_id, transaction_id,
                  points_redeemed, redemption_date, redemption_status)
-            VALUES (%s, %s, %s, %s, %s, NOW(), 'COMPLETED')
+            VALUES (%s, %s, %s, %s, %s, %s, 'COMPLETED')
             """,
-            (redemption_id, customer_id, reward_id, transaction_id, points),
+            (redemption_id, customer_id, reward_id, transaction_id, points,
+             redemption_time),
         )
 
         remaining_to_use = points

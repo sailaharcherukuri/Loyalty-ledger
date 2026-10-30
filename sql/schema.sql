@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS customers (
     customer_code VARCHAR(20) NOT NULL UNIQUE,
     full_name VARCHAR(100) NOT NULL,
     email VARCHAR(150) NOT NULL UNIQUE,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS loyalty_accounts (
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS loyalty_accounts (
     tier_id INT,
     current_points INT NOT NULL DEFAULT 0,
     qualifying_spend DECIMAL(12,2) NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_account_customer FOREIGN KEY (customer_id)
         REFERENCES customers(customer_id),
     CONSTRAINT fk_account_tier FOREIGN KEY (tier_id)
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS account_tier_history (
     old_tier_id INT,
     new_tier_id INT NOT NULL,
     qualifying_spend DECIMAL(12,2) NOT NULL,
-    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    changed_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
     FOREIGN KEY (old_tier_id) REFERENCES tiers(tier_id),
     FOREIGN KEY (new_tier_id) REFERENCES tiers(tier_id)
@@ -48,11 +48,14 @@ CREATE TABLE IF NOT EXISTS account_tier_history (
 
 CREATE TABLE IF NOT EXISTS rules (
     rule_id INT PRIMARY KEY,
+    tier_id INT NOT NULL,
     rule_name VARCHAR(100) NOT NULL,
     points_per_100 DECIMAL(6,2) NOT NULL,
     effective_from DATE NOT NULL,
     effective_to DATE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (tier_id) REFERENCES tiers(tier_id),
+    UNIQUE (tier_id, effective_from),
     CHECK (points_per_100 >= 0),
     CHECK (effective_to IS NULL OR effective_to >= effective_from)
 ) ENGINE=InnoDB;
@@ -60,7 +63,7 @@ CREATE TABLE IF NOT EXISTS rules (
 CREATE TABLE IF NOT EXISTS orders (
     order_id VARCHAR(20) PRIMARY KEY,
     customer_id INT NOT NULL,
-    order_date DATETIME NOT NULL,
+    order_date DATETIME(6) NOT NULL,
     total_amount DECIMAL(12,2) NOT NULL,
     order_status ENUM('PLACED','COMPLETED','RETURNED','CANCELLED')
         NOT NULL DEFAULT 'PLACED',
@@ -108,12 +111,16 @@ CREATE TABLE IF NOT EXISTS points_transactions (
     transaction_type ENUM('ACCRUAL','REDEMPTION','EXPIRY','REVERSAL','ADJUSTMENT')
         NOT NULL,
     points_change INT NOT NULL,
-    transaction_date DATETIME NOT NULL,
+    transaction_date DATETIME(6) NOT NULL,
     description VARCHAR(255),
     idempotency_key VARCHAR(100) UNIQUE,
     related_transaction_id VARCHAR(20),
+    rule_id INT,
+    earning_rate DECIMAL(6,2),
+    eligible_spend DECIMAL(12,2),
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
     FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (rule_id) REFERENCES rules(rule_id),
     FOREIGN KEY (related_transaction_id)
         REFERENCES points_transactions(transaction_id),
     CHECK (points_change <> 0),
@@ -126,8 +133,8 @@ CREATE TABLE IF NOT EXISTS point_lots (
     source_transaction_id VARCHAR(20) NOT NULL UNIQUE,
     points_earned INT NOT NULL,
     points_remaining INT NOT NULL,
-    earned_at DATETIME NOT NULL,
-    expires_at DATETIME,
+    earned_at DATETIME(6) NOT NULL,
+    expires_at DATETIME(6),
     lot_status ENUM('ACTIVE','PARTIALLY_USED','EXHAUSTED','EXPIRED','REVERSED')
         NOT NULL DEFAULT 'ACTIVE',
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
@@ -145,7 +152,7 @@ CREATE TABLE IF NOT EXISTS redemptions (
     reward_id INT,
     transaction_id VARCHAR(20) NOT NULL UNIQUE,
     points_redeemed INT NOT NULL,
-    redemption_date DATETIME NOT NULL,
+    redemption_date DATETIME(6) NOT NULL,
     redemption_status ENUM('COMPLETED','CANCELLED','REVERSED')
         NOT NULL DEFAULT 'COMPLETED',
     FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
@@ -164,10 +171,21 @@ CREATE TABLE IF NOT EXISTS lot_consumptions (
     CHECK (points_used > 0)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS reversal_lot_allocations (
+    reversal_transaction_id VARCHAR(20) NOT NULL,
+    lot_id BIGINT NOT NULL,
+    points_removed INT NOT NULL,
+    PRIMARY KEY (reversal_transaction_id, lot_id),
+    FOREIGN KEY (reversal_transaction_id)
+        REFERENCES points_transactions(transaction_id),
+    FOREIGN KEY (lot_id) REFERENCES point_lots(lot_id),
+    CHECK (points_removed > 0)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS order_returns (
     return_id VARCHAR(20) PRIMARY KEY,
     order_id VARCHAR(20) NOT NULL,
-    return_date DATETIME NOT NULL,
+    return_date DATETIME(6) NOT NULL,
     refund_amount DECIMAL(12,2) NOT NULL,
     return_status ENUM('REQUESTED','COMPLETED','REJECTED')
         NOT NULL DEFAULT 'REQUESTED',
@@ -178,7 +196,7 @@ CREATE TABLE IF NOT EXISTS order_returns (
 CREATE TABLE IF NOT EXISTS expiry_batches (
     expiry_batch_id VARCHAR(20) PRIMARY KEY,
     expiry_date DATE NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     batch_status ENUM('PENDING','COMPLETED','FAILED') NOT NULL DEFAULT 'PENDING'
 ) ENGINE=InnoDB;
 
@@ -201,6 +219,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
     entity_id VARCHAR(50) NOT NULL,
     event_type VARCHAR(50) NOT NULL,
     event_details JSON,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     INDEX idx_audit_entity (entity_type, entity_id, created_at)
 ) ENGINE=InnoDB;

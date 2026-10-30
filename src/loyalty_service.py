@@ -20,47 +20,139 @@ def calculate_points(eligible_spend, points_per_100=1):
     return int(points)
 
 
-def _audit(cursor, entity_type, entity_id, event_type, details):
-    cursor.execute(
-        """
-        INSERT INTO audit_events (entity_type, entity_id, event_type, event_details)
-        VALUES (%s, %s, %s, %s)
-        """,
-        (entity_type, str(entity_id), event_type, json.dumps(details, default=str)),
-    )
+def _audit(cursor, entity_type, entity_id, event_type, details, event_time=None):
+    if event_time is None:
+        cursor.execute(
+            """
+            INSERT INTO audit_events (entity_type, entity_id, event_type, event_details)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (entity_type, str(entity_id), event_type, json.dumps(details, default=str)),
+        )
+    else:
+        cursor.execute(
+            """
+            INSERT INTO audit_events
+                (entity_type, entity_id, event_type, event_details, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (entity_type, str(entity_id), event_type,
+             json.dumps(details, default=str), event_time),
+        )
 
 
-def _qualifying_spend(cursor, customer_id):
+def _eligible_order_spend(cursor, order_id, order_total):
     cursor.execute(
         """
-        SELECT COALESCE(SUM(
-            (CASE
-                WHEN EXISTS (SELECT 1 FROM order_lines AS any_line
-                             WHERE any_line.order_id = orders.order_id)
-                THEN COALESCE(
-                    (SELECT SUM((line.quantity * line.unit_price) - line.discount_amount)
-                     FROM order_lines AS line
-                     WHERE line.order_id = orders.order_id AND line.is_eligible = TRUE),
-                    0
-                )
-                ELSE orders.total_amount
-            END) - COALESCE(
-                (SELECT SUM(order_returns.refund_amount)
-                 FROM order_returns
-                 WHERE order_returns.order_id = orders.order_id
-                   AND order_returns.return_status = 'COMPLETED'),
-                0
-            )
+        SELECT COUNT(*), COALESCE(SUM(
+            CASE WHEN is_eligible = TRUE
+                 THEN (quantity * unit_price) - discount_amount ELSE 0 END
         ), 0)
-        FROM orders
-        WHERE customer_id = %s AND order_status IN ('COMPLETED', 'RETURNED')
+        FROM order_lines WHERE order_id = %s
         """,
-        (customer_id,),
+        (order_id,),
+    )
+    line_count, eligible_spend = cursor.fetchone()
+    return Decimal(str(eligible_spend if line_count else order_total))
+
+
+def _qualifying_spend(cursor, customer_id, as_of=None, exclude_order=None):
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(GREATEST(
+            0,
+            eligible_spend - CASE WHEN total_amount > 0
+                THEN refunds * eligible_spend / total_amount ELSE 0 END
+        )), 0)
+        FROM (
+            SELECT o.order_id, o.total_amount,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM order_lines AS any_line
+                       WHERE any_line.order_id = o.order_id
+                   ) THEN COALESCE((
+                       SELECT SUM((line.quantity * line.unit_price) - line.discount_amount)
+                       FROM order_lines AS line
+                       WHERE line.order_id = o.order_id AND line.is_eligible = TRUE
+                   ), 0) ELSE o.total_amount END AS eligible_spend,
+                   COALESCE((
+                       SELECT SUM(r.refund_amount) FROM order_returns AS r
+                       WHERE r.order_id = o.order_id
+                         AND r.return_status = 'COMPLETED'
+                         AND (%s IS NULL OR r.return_date <= %s)
+                   ), 0) AS refunds
+            FROM orders AS o
+            WHERE o.customer_id = %s
+              AND o.order_status IN ('COMPLETED', 'RETURNED')
+              AND (%s IS NULL OR o.order_date < %s
+                   OR (o.order_date = %s AND o.order_id < %s))
+              AND (
+                  EXISTS (SELECT 1 FROM points_transactions AS t
+                          WHERE t.order_id = o.order_id AND t.transaction_type = 'ACCRUAL')
+                  OR EXISTS (SELECT 1 FROM audit_events AS a
+                             WHERE a.entity_type = 'order' AND a.entity_id = o.order_id
+                               AND a.event_type = 'QUALIFYING_SPEND_RECORDED')
+              )
+        ) AS order_spend
+        """,
+        (as_of, as_of, customer_id, as_of, as_of, as_of, exclude_order or ""),
     )
     return max(Decimal("0"), Decimal(str(cursor.fetchone()[0])))
 
 
-def _refresh_tier(cursor, customer_id):
+def _tier_for_spend(cursor, spend):
+    cursor.execute(
+        """
+        SELECT tier_id FROM tiers
+        WHERE minimum_spend <= %s
+        ORDER BY minimum_spend DESC, tier_id
+        LIMIT 1
+        """,
+        (spend,),
+    )
+    tier = cursor.fetchone()
+    return tier[0] if tier else None
+
+
+def _active_earning_rule(cursor, tier_id, event_time):
+    cursor.execute(
+        """
+        SELECT rule_id, points_per_100 FROM rules
+        WHERE tier_id = %s AND is_active = TRUE
+          AND effective_from <= %s
+          AND (effective_to IS NULL OR effective_to >= %s)
+        ORDER BY effective_from DESC, rule_id DESC
+        LIMIT 1
+        """,
+        (tier_id, event_time.date(), event_time.date()),
+    )
+    return cursor.fetchone()
+
+
+def _require_event_order(cursor, customer_id, event_time):
+    cursor.execute(
+        """
+        SELECT MAX(event_time) FROM (
+            SELECT transaction_date AS event_time
+            FROM points_transactions WHERE customer_id = %s
+            UNION ALL
+            SELECT a.created_at AS event_time
+            FROM audit_events AS a
+            JOIN orders AS o ON o.order_id = a.entity_id
+            WHERE o.customer_id = %s AND a.entity_type = 'order'
+              AND a.event_type = 'QUALIFYING_SPEND_RECORDED'
+        ) AS processed_events
+        """,
+        (customer_id, customer_id),
+    )
+    latest_event = cursor.fetchone()[0]
+    if latest_event is not None and event_time < latest_event:
+        raise ValueError(
+            "Process loyalty events in timestamp order. For historical imports, "
+            "sort and replay the source events before applying them."
+        )
+
+
+def _refresh_tier(cursor, customer_id, event_time=None):
     spend = _qualifying_spend(cursor, customer_id)
     cursor.execute(
         "SELECT tier_id, current_points FROM loyalty_accounts "
@@ -72,17 +164,7 @@ def _refresh_tier(cursor, customer_id):
         raise ValueError("Loyalty account not found.")
     old_tier_id = row[0]
 
-    cursor.execute(
-        """
-        SELECT tier_id FROM tiers
-        WHERE minimum_spend <= %s
-        ORDER BY minimum_spend DESC, tier_id
-        LIMIT 1
-        """,
-        (spend,),
-    )
-    tier = cursor.fetchone()
-    new_tier_id = tier[0] if tier else None
+    new_tier_id = _tier_for_spend(cursor, spend)
 
     cursor.execute(
         """
@@ -97,10 +179,11 @@ def _refresh_tier(cursor, customer_id):
             cursor.execute(
                 """
                 INSERT INTO account_tier_history
-                    (customer_id, old_tier_id, new_tier_id, qualifying_spend)
-                VALUES (%s, %s, %s, %s)
+                    (customer_id, old_tier_id, new_tier_id, qualifying_spend,
+                     changed_at)
+                VALUES (%s, %s, %s, %s, COALESCE(%s, UTC_TIMESTAMP()))
                 """,
-                (customer_id, old_tier_id, new_tier_id, spend),
+                (customer_id, old_tier_id, new_tier_id, spend, event_time),
             )
             _audit(cursor, "loyalty_account", customer_id, "TIER_CHANGED", {
                 "old_tier_id": old_tier_id,
@@ -148,63 +231,6 @@ def award_points(order_id, expiry_days=365):
         customer_id, total_amount, status, order_date = order
         if status != "COMPLETED":
             raise ValueError("Only completed orders earn points.")
-
-        cursor.execute(
-            """
-            SELECT COALESCE(SUM((quantity * unit_price) - discount_amount), 0)
-            FROM order_lines
-            WHERE order_id = %s AND is_eligible = TRUE
-            """,
-            (order_id,),
-        )
-        eligible_spend = cursor.fetchone()[0]
-        cursor.execute(
-            "SELECT COUNT(*) FROM order_lines WHERE order_id = %s",
-            (order_id,),
-        )
-        if cursor.fetchone()[0] == 0:
-            eligible_spend = total_amount
-
-        cursor.execute(
-            "SELECT tier_id, current_points FROM loyalty_accounts "
-            "WHERE customer_id = %s FOR UPDATE",
-            (customer_id,),
-        )
-        account = cursor.fetchone()
-        if account is None:
-            raise ValueError("Loyalty account not found.")
-        starting_balance = account[1]
-
-        points_per_100 = Decimal("1")
-        if account[0] is not None:
-            cursor.execute(
-                "SELECT points_per_100 FROM tiers WHERE tier_id = %s",
-                (account[0],),
-            )
-            tier = cursor.fetchone()
-            if tier:
-                points_per_100 = Decimal(str(tier[0]))
-        points = calculate_points(eligible_spend, points_per_100)
-        if points == 0:
-            cursor.execute(
-                """
-                SELECT audit_id FROM audit_events
-                WHERE entity_type = 'order' AND entity_id = %s
-                  AND event_type = 'QUALIFYING_SPEND_RECORDED'
-                """,
-                (order_id,),
-            )
-            if cursor.fetchone():
-                raise ValueError("This order's qualifying spend was already processed.")
-            _refresh_tier(cursor, customer_id)
-            _audit(cursor, "order", order_id, "QUALIFYING_SPEND_RECORDED", {
-                "customer_id": customer_id,
-                "eligible_spend": str(eligible_spend),
-                "points_awarded": 0,
-            })
-            connection.commit()
-            return {"order_id": order_id, "points": 0, "transaction_id": None}
-
         idempotency_key = f"ACCRUAL:{order_id}"
         cursor.execute(
             """
@@ -217,16 +243,108 @@ def award_points(order_id, expiry_days=365):
         if cursor.fetchone():
             raise ValueError("Points have already been awarded for this order.")
 
+        # Serialize all customer balance/tier decisions before reading the
+        # event-time spend. Different orders for one account may be awarded
+        # concurrently by separate workers.
+        cursor.execute(
+            "SELECT customer_id FROM loyalty_accounts "
+            "WHERE customer_id = %s FOR UPDATE",
+            (customer_id,),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError("Loyalty account not found.")
+        cursor.execute("SELECT UTC_TIMESTAMP(6)")
+        processed_at = cursor.fetchone()[0]
+        _require_event_order(cursor, customer_id, processed_at)
+
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM((quantity * unit_price) - discount_amount), 0)
+            FROM order_lines
+            WHERE order_id = %s AND is_eligible = TRUE
+            """,
+            (order_id,),
+        )
+        eligible_spend = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM order_lines WHERE order_id = %s", (order_id,))
+        if cursor.fetchone()[0] == 0:
+            eligible_spend = total_amount
+        eligible_spend = Decimal(str(eligible_spend))
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(refund_amount), 0)
+            FROM order_returns
+            WHERE order_id = %s AND return_status = 'COMPLETED'
+              AND return_date <= %s
+            """,
+            (order_id, processed_at),
+        )
+        completed_refunds = Decimal(str(cursor.fetchone()[0]))
+        eligible_spend = max(
+            Decimal("0"), eligible_spend -
+            (completed_refunds * eligible_spend / Decimal(str(total_amount)))
+        )
+
+        prior_spend = _qualifying_spend(
+            cursor, customer_id, as_of=processed_at, exclude_order=order_id
+        )
+        event_tier_id = _tier_for_spend(cursor, prior_spend)
+        if event_tier_id is None:
+            raise ValueError("No tier is configured for the order's event-time spend.")
+        rule = _active_earning_rule(cursor, event_tier_id, processed_at)
+        if rule is None:
+            raise ValueError(
+                "No active earning rule covers the order date and event-time tier."
+            )
+        rule_id, points_per_100 = rule
+        points_per_100 = Decimal(str(points_per_100))
+
+        cursor.execute(
+            "SELECT tier_id, current_points FROM loyalty_accounts "
+            "WHERE customer_id = %s FOR UPDATE",
+            (customer_id,),
+        )
+        account = cursor.fetchone()
+        if account is None:
+            raise ValueError("Loyalty account not found.")
+        starting_balance = account[1]
+
+        points = calculate_points(eligible_spend, points_per_100)
+        if points == 0:
+            cursor.execute(
+                """
+                SELECT audit_id FROM audit_events
+                WHERE entity_type = 'order' AND entity_id = %s
+                  AND event_type = 'QUALIFYING_SPEND_RECORDED'
+                """,
+                (order_id,),
+            )
+            if cursor.fetchone():
+                raise ValueError("This order's qualifying spend was already processed.")
+            _refresh_tier(cursor, customer_id, event_time=processed_at)
+            _audit(cursor, "order", order_id, "QUALIFYING_SPEND_RECORDED", {
+                "customer_id": customer_id,
+                "eligible_spend": str(eligible_spend),
+                "points_awarded": 0,
+                "rule_id": rule_id,
+                "points_per_100": str(points_per_100),
+                "tier_id": event_tier_id,
+            }, event_time=processed_at)
+            connection.commit()
+            return {"order_id": order_id, "points": 0, "transaction_id": None}
+
         transaction_id = next_id(cursor, "points", "PTS", 8)
         cursor.execute(
             """
             INSERT INTO points_transactions
                 (transaction_id, customer_id, order_id, transaction_type,
-                 points_change, transaction_date, description, idempotency_key)
-            VALUES (%s, %s, %s, 'ACCRUAL', %s, NOW(), %s, %s)
+                 points_change, transaction_date, description, idempotency_key,
+                 rule_id, earning_rate, eligible_spend)
+            VALUES (%s, %s, %s, 'ACCRUAL', %s, %s, %s, %s, %s, %s, %s)
             """,
-            (transaction_id, customer_id, order_id, points,
-             f"Eligible spend {eligible_spend} earned {points} points", idempotency_key),
+            (transaction_id, customer_id, order_id, points, processed_at,
+             f"Eligible spend {eligible_spend} earned {points} points", idempotency_key,
+             rule_id, points_per_100, eligible_spend),
         )
 
         lot_remaining = min(points, max(0, starting_balance + points))
@@ -243,7 +361,7 @@ def award_points(order_id, expiry_days=365):
             VALUES (%s, %s, %s, %s, %s, DATE_ADD(%s, INTERVAL %s DAY), %s)
             """,
             (customer_id, transaction_id, points, lot_remaining,
-             order_date, order_date, expiry_days, lot_status),
+             processed_at, processed_at, expiry_days, lot_status),
         )
         cursor.execute(
             """
@@ -252,13 +370,16 @@ def award_points(order_id, expiry_days=365):
             """,
             (points, customer_id),
         )
-        _refresh_tier(cursor, customer_id)
+        _refresh_tier(cursor, customer_id, event_time=processed_at)
         _audit(cursor, "points_transaction", transaction_id, "ACCRUED", {
             "customer_id": customer_id,
             "order_id": order_id,
             "points": points,
             "eligible_spend": str(eligible_spend),
-        })
+            "rule_id": rule_id,
+            "points_per_100": str(points_per_100),
+            "tier_id": event_tier_id,
+        }, event_time=processed_at)
         connection.commit()
         return {"order_id": order_id, "points": points, "transaction_id": transaction_id}
     except Exception:
@@ -276,7 +397,7 @@ def complete_return(return_id):
     try:
         cursor.execute(
             """
-            SELECT r.order_id, r.refund_amount, r.return_status,
+            SELECT r.order_id, r.refund_amount, r.return_status, r.return_date,
                    o.customer_id, o.total_amount
             FROM order_returns AS r
             JOIN orders AS o ON o.order_id = r.order_id
@@ -287,11 +408,21 @@ def complete_return(return_id):
         row = cursor.fetchone()
         if row is None:
             raise ValueError("Return not found.")
-        order_id, refund_amount, status, customer_id, order_amount = row
+        order_id, refund_amount, status, return_time, customer_id, order_amount = row
         if status != "REQUESTED":
             raise ValueError("Only a requested return can be completed.")
         if order_amount <= 0:
             raise ValueError("Cannot process a return for a zero-value order.")
+        _require_event_order(cursor, customer_id, return_time)
+
+        cursor.execute(
+            """
+            SELECT transaction_id FROM points_transactions
+            WHERE order_id = %s AND transaction_type = 'ACCRUAL'
+            """,
+            (order_id,),
+        )
+        accrual = cursor.fetchone()
 
         cursor.execute(
             """
@@ -317,7 +448,8 @@ def complete_return(return_id):
             raise ValueError("Loyalty account not found.")
         cursor.execute(
             """
-            SELECT transaction_id, points_change FROM points_transactions
+            SELECT transaction_id, points_change, eligible_spend, transaction_date
+            FROM points_transactions
             WHERE order_id = %s AND transaction_type = 'ACCRUAL'
             """,
             (order_id,),
@@ -325,8 +457,10 @@ def complete_return(return_id):
         accrual = cursor.fetchone()
         reversed_points = 0
         reversal_id = None
+        points_removed_from_lots = 0
+        eligible_spend = _eligible_order_spend(cursor, order_id, order_amount)
         if accrual:
-            accrual_id, accrual_points = accrual
+            accrual_id, accrual_points, accrued_eligible_spend, accrual_time = accrual
             cursor.execute(
                 """
                 SELECT COALESCE(SUM(-points_change), 0)
@@ -336,12 +470,42 @@ def complete_return(return_id):
                 (order_id,),
             )
             already_reversed = cursor.fetchone()[0]
-            total_refunds = previous_refunds + Decimal(str(refund_amount))
-            target_reversal = int(
-                (Decimal(accrual_points) * total_refunds / Decimal(str(order_amount)))
-                .quantize(Decimal("1"), rounding=ROUND_FLOOR)
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(refund_amount), 0)
+                FROM order_returns
+                WHERE order_id = %s AND return_status = 'COMPLETED'
+                  AND return_date > %s AND return_date <= %s
+                """,
+                (order_id, accrual_time, return_time),
             )
-            reversed_points = max(0, target_reversal - already_reversed)
+            refunds_since_accrual = Decimal(str(cursor.fetchone()[0]))
+            eligible_refund = (refunds_since_accrual * eligible_spend /
+                               Decimal(str(order_amount)))
+            target_reversal = (
+                int((Decimal(accrual_points) * eligible_refund /
+                     Decimal(str(accrued_eligible_spend)))
+                    .quantize(Decimal("1"), rounding=ROUND_FLOOR))
+                if accrued_eligible_spend and Decimal(str(accrued_eligible_spend)) > 0 else 0
+            )
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(d.points_expired), 0)
+                FROM point_lots AS l
+                JOIN expiry_batch_details AS d ON d.lot_id = l.lot_id
+                JOIN points_transactions AS expiry_tx
+                  ON expiry_tx.transaction_id = d.transaction_id
+                WHERE l.source_transaction_id = %s
+                  AND expiry_tx.transaction_date <= %s
+                """,
+                (accrual_id, return_time),
+            )
+            expired_points = int(cursor.fetchone()[0])
+            points_after_previous_reversals = max(
+                0, target_reversal - int(already_reversed)
+            )
+            expired_offset = min(expired_points, points_after_previous_reversals)
+            reversed_points = points_after_previous_reversals - expired_offset
             if reversed_points:
                 reversal_id = next_id(cursor, "points", "PTS", 8)
                 cursor.execute(
@@ -350,9 +514,9 @@ def complete_return(return_id):
                         (transaction_id, customer_id, order_id, transaction_type,
                          points_change, transaction_date, description,
                          idempotency_key, related_transaction_id)
-                    VALUES (%s, %s, %s, 'REVERSAL', %s, NOW(), %s, %s, %s)
+                    VALUES (%s, %s, %s, 'REVERSAL', %s, %s, %s, %s, %s)
                     """,
-                    (reversal_id, customer_id, order_id, -reversed_points,
+                    (reversal_id, customer_id, order_id, -reversed_points, return_time,
                      f"Return {return_id} reversed {reversed_points} points",
                      f"REVERSAL:{return_id}", accrual_id),
                 )
@@ -389,7 +553,19 @@ def complete_return(return_id):
                         """,
                         (new_lot_balance, new_status, lot_id),
                     )
+                    cursor.execute(
+                        """
+                        INSERT INTO reversal_lot_allocations
+                            (reversal_transaction_id, lot_id, points_removed)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (reversal_id, lot_id, removed),
+                    )
                     remaining_to_remove -= removed
+                    points_removed_from_lots += removed
+        else:
+            expired_offset = 0
+            target_reversal = 0
 
         cursor.execute(
             """
@@ -405,15 +581,19 @@ def complete_return(return_id):
                 (order_id,),
             )
 
-        _refresh_tier(cursor, customer_id)
+        _refresh_tier(cursor, customer_id, event_time=return_time)
         _audit(cursor, "order_return", return_id, "RETURN_COMPLETED", {
             "order_id": order_id,
             "refund_amount": str(refund_amount),
             "points_reversed": reversed_points,
+            "target_reversal": target_reversal,
+            "expired_points_offset": expired_offset,
+            "spent_point_debt": max(0, reversed_points - points_removed_from_lots),
             "transaction_id": reversal_id,
-        })
+        }, event_time=return_time)
         connection.commit()
         return {"return_id": return_id, "points_reversed": reversed_points,
+                "expired_points_offset": expired_offset,
                 "transaction_id": reversal_id}
     except Exception:
         connection.rollback()

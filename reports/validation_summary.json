@@ -53,5 +53,56 @@
       "details": "data/generated_small/validation_summary.json"
     }
   },
-  "scope_note": "These are local automated-test, database-reconciliation, migration, and generated-data integrity results. They do not claim a hosted deployment."
+  "scope_note": "The 2026-10-28 values above are the earlier seven-check reconciliation. Current code, tests, generated data, and the migrated local MySQL database were verified on 2026-10-29. The pre-migration database backup was retained in Documents.",
+  "current_worktree_verification": {
+    "checked_on": "2026-10-29",
+    "automated_tests": {
+      "command": ".venv\\Scripts\\python.exe -m unittest discover -s tests -v",
+      "passed": true,
+      "tests_run": 32,
+      "failures": 0,
+      "errors": 0,
+      "database_tests_used_temporary_schema": true
+    },
+    "synthetic_data": {
+      "small": {
+        "customers": 20,
+        "orders": 100,
+        "point_transactions": 300,
+        "passed": true,
+        "deterministic_regeneration_test_passed": true
+      },
+      "full": {
+        "customers": 20000,
+        "orders": 100000,
+        "point_transactions": 300000,
+        "passed": true,
+        "independent_regeneration_hashes_match": true
+      }
+    },
+    "configured_local_database": {
+      "schema_migration": "sql/migrate_v3.sql applied after creating a backup",
+      "backup_created": true,
+      "backup_filename": "loyalty-ledger_backup_before_v3_20261029.sql",
+      "validator_passed": true,
+      "checks": {
+        "balance_ledger_mismatches": 0,
+        "available_lot_balance_mismatches": 0,
+        "accruals_missing_lots": 0,
+        "completed_refunds_over_order_total": 0,
+        "duplicate_order_accruals": 0,
+        "expired_lots_still_open": 0,
+        "invalid_lot_balances": 0,
+        "accrual_rule_metadata_mismatches": 0,
+        "completed_returns_missing_or_wrong_reversals": 0,
+        "current_tier_and_spend_cache_mismatches": 0,
+        "tier_history_event_time_mismatches": 0,
+        "lot_source_ownership_mismatches": 0,
+        "redemption_lot_event_and_ownership_mismatches": 0,
+        "redemption_allocation_and_transaction_mismatches": 0,
+        "expiry_reference_and_duplicate_mismatches": 0,
+        "reversal_source_and_lot_allocation_mismatches": 0
+      }
+    }
+  }
 }

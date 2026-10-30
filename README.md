@@ -2,7 +2,7 @@
 
 A Python and MySQL application for earning, redeeming, reversing, and expiring loyalty points. Every points change is recorded in an append-only transaction ledger; `loyalty_accounts.current_points` is a cached balance that can be checked against the ledger.
 
-The project includes database-backed workflows, a deterministic synthetic-data generator with labelled edge cases, a reconciliation command, automated scenario tests, setup guidance, and a data dictionary. The full and small synthetic datasets passed the generator's built-in validation. The local MySQL database also passed all seven reconciliation checks on 2026-10-28; see [`reports/validation_summary.json`](reports/validation_summary.json). This is a local project and has not been deployed as a hosted service.
+The project includes database-backed workflows, a deterministic synthetic-data generator with labelled edge cases, a reconciliation command, automated scenario tests, setup guidance, and a data dictionary. The small and full synthetic datasets include machine-checked invariants and SHA-256 manifests. MySQL reconciliation results are recorded in [`reports/validation_summary.json`](reports/validation_summary.json). This is a local project and has not been deployed as a hosted service.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ The command-line scripts call the Python workflows, which use `db.py` to connect
 From PowerShell, open the project directory and create the virtual environment:
 
 ```powershell
-cd C:\Users\ASUS\Documents\loyalty-ledger
+cd <path-to-project>\loyalty-ledger
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
@@ -75,7 +75,7 @@ If `mysql` is not on `PATH` on Windows, launch it by its installed path from Pow
 
 ### Existing starter database
 
-Back up an existing database before upgrading it. Run `sql/migrate_v2.sql` once against the starter database; do not run `schema.sql` over it. Then run `sql/reconcile_opening_balances.sql` to preserve any pre-existing account balance that was not represented in the original transaction ledger. That repair is safe to repeat. The schema migration itself is not a general-purpose repeatable script: if it reports an error, stop and inspect the database state before trying it again. The included migration targets the starter schema and should not be used on a fresh v2 database.
+Back up an existing database before upgrading it. Run `sql/migrate_v2.sql` once against the starter database; do not run `schema.sql` over it. Then run `sql/reconcile_opening_balances.sql` to preserve any pre-existing account balance that was not represented in the original transaction ledger. Run `sql/migrate_v3.sql` after the v2 upgrade to add effective tier rules, recorded accrual metadata, reversal-to-lot allocations, and microsecond event timestamps. The v3 migration is repeat-safe; the v2 migration targets the original starter schema and should not be rerun or used on a fresh v2 database.
 
 ## Run the workflows
 
@@ -136,7 +136,7 @@ From the project root with the virtual environment active, run:
 python -m unittest discover -s tests -v
 ```
 
-The suite contains 26 tests: unit tests, deterministic generator checks, MySQL workflow and concurrency checks, CSV loader integration, command-line success and failure checks, and an upgrade test from a synthetic pre-v2 schema. The database tests require the local MySQL credentials in `.env` to have permission to create and drop databases. They create uniquely named temporary databases, run against those databases, and drop them when the test run finishes; they do not use the configured `loyalty_ledger` database for test records. The CSV loader test temporarily enables MySQL `local_infile` only when necessary, then restores the server's original setting.
+The suite contains 32 tests: unit tests, deterministic generator checks, MySQL workflow and concurrency checks, CSV loader integration, command-line success and failure checks, and migration tests from a synthetic legacy schema through v3. The database tests require the local MySQL credentials in `.env` to have permission to create and drop databases. They create uniquely named temporary databases, run against those databases, and drop them when the test run finishes; they do not use the configured `loyalty_ledger` database for test records. The CSV loader test temporarily enables MySQL `local_infile` only when necessary, then restores the server's original setting.
 
 See [`docs/test_plan.md`](docs/test_plan.md) for the requirement-to-test map and latest results.
 
@@ -175,12 +175,15 @@ Customer business IDs use `LOY-000001`; transaction IDs use `PTS-2026-########`.
 - The project uses INR amounts and one point per ₹100 of eligible net spend at the Basic tier. Higher tiers use the rates configured in `tiers`.
 - Eligible spend comes from eligible order lines after discounts. Orders without lines use `orders.total_amount` as a compatibility fallback.
 - New accruals expire after 365 days by default. The duration can be changed with `--expiry-days` on the award command.
-- Partial return reversals are proportional to the refund divided by the original order total, rounded down to whole points. Across multiple returns, only the newly required reversal is written.
+- Refunds are allocated to eligible spend in proportion to the original eligible share of the order. A refund completed before accrual reduces the eventual eligible spend; a refund after accrual creates only the incremental point reversal. Whole-point amounts round down.
+- Point lots are usable from `earned_at` up to, but not including, `expires_at`. Timestamps are stored and compared in UTC; the expiry command's date argument means the end of that UTC date.
+- Returns after expiry offset points already expired before creating a reversal. If the customer spent the remaining earned points, the reversal can create an audited negative balance.
+- The effective tier rule and its rate are stored on each accrual. Tier changes use event-time qualifying spend after completed refunds.
 - A rule or exception is persisted as a transaction or lifecycle record; generated ground-truth labels will be kept separate from input data.
 
 ## AI use
 
-I used AI assistance for troubleshooting, implementation guidance, code review, test coverage, and documentation. The detailed disclosure and prompt-history notes are in [`docs/ai_usage.md`](docs/ai_usage.md). Prompts I used during the project:
+I used AI assistance for troubleshooting, implementation guidance, code review, test coverage, and documentation. The disclosure and historical prompt notes are in [`docs/ai_usage.md`](docs/ai_usage.md). The recorded prompts are:
 
 1. “What’s next?”
 2. “Why keep a points ledger?”
@@ -201,6 +204,6 @@ I used AI assistance for troubleshooting, implementation guidance, code review, 
 
 ## Validation and candidate submission
 
-Before submission, the project owner still needs to review and understand the implementation, complete the candidate review record in [`docs/ai_usage.md`](docs/ai_usage.md), and ensure the prompt-history record covers all prompts submitted to each AI tool. The available earlier ChatGPT material was shared as excerpts, so the current record discloses that limitation rather than claiming a complete export. The folder is not yet a Git repository; create a public GitHub repository and use commits under your own account before submission. Do not publish local credentials or private data.
+Before submission, review and understand the implementation and ensure the prompt-history record covers the prompts required by the submission guidelines. The history in [`docs/ai_usage.md`](docs/ai_usage.md) records the 16 prompts provided by the project owner. Do not publish local credentials or private data.
 
 The automated suite and recorded data checks cover the implemented business rules and edge cases, but they do not prove a hosted deployment or replace the project owner's code review. Review the code and be prepared to explain the transaction, locking, idempotency, and data-generation decisions before submitting.

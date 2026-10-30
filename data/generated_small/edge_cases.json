@@ -1,6 +1,7 @@
 [
   {
     "case_id": "EDGE-001",
+    "verification_test": "test_validator_detects_a_balance_ledger_mismatch",
     "issue_type": "BALANCE_LEDGER_MISMATCH",
     "ground_truth_label": "RECONCILIATION_REQUIRED",
     "input": {
@@ -11,6 +12,7 @@
   },
   {
     "case_id": "EDGE-002",
+    "verification_test": "test_redemption_over_balance_is_rejected_without_writes",
     "issue_type": "REDEMPTION_EXCEEDS_AVAILABLE",
     "ground_truth_label": "REJECT_WITHOUT_WRITES",
     "input": {
@@ -21,6 +23,7 @@
   },
   {
     "case_id": "EDGE-003",
+    "verification_test": "test_validator_detects_missing_return_reversal",
     "issue_type": "RETURN_WITHOUT_REVERSAL",
     "ground_truth_label": "MISSING_REVERSAL",
     "input": {
@@ -33,6 +36,7 @@
   },
   {
     "case_id": "EDGE-004",
+    "verification_test": "test_expiry_is_idempotent_for_the_same_lot",
     "issue_type": "DUPLICATE_EXPIRY",
     "ground_truth_label": "IDEMPOTENT_NOOP_ON_REPEAT",
     "input": {
@@ -47,6 +51,7 @@
   },
   {
     "case_id": "EDGE-005",
+    "verification_test": "test_tier_uses_qualifying_net_spend_then_progresses",
     "issue_type": "TIER_USES_GROSS_SPEND",
     "ground_truth_label": "BASIC_TIER",
     "input": {
@@ -58,6 +63,7 @@
   },
   {
     "case_id": "EDGE-006",
+    "verification_test": "test_concurrent_redemptions_allow_at_most_one_to_spend_same_balance",
     "issue_type": "CONCURRENT_REDEMPTION_ATTEMPTS",
     "ground_truth_label": "ONE_ACCEPT_ONE_REJECT",
     "input": {

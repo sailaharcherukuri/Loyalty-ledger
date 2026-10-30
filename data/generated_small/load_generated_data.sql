@@ -22,8 +22,8 @@ LOAD DATA LOCAL INFILE 'data/generated_small/rules.csv'
 INTO TABLE `rules` CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
 LINES TERMINATED BY '\n' IGNORE 1 LINES
-(@v_rule_id, @v_rule_name, @v_points_per_100, @v_effective_from, @v_effective_to, @v_is_active)
-SET `rule_id` = NULLIF(@v_rule_id, ''), `rule_name` = NULLIF(@v_rule_name, ''), `points_per_100` = NULLIF(@v_points_per_100, ''), `effective_from` = NULLIF(@v_effective_from, ''), `effective_to` = NULLIF(@v_effective_to, ''), `is_active` = NULLIF(@v_is_active, '');
+(@v_rule_id, @v_tier_id, @v_rule_name, @v_points_per_100, @v_effective_from, @v_effective_to, @v_is_active)
+SET `rule_id` = NULLIF(@v_rule_id, ''), `tier_id` = NULLIF(@v_tier_id, ''), `rule_name` = NULLIF(@v_rule_name, ''), `points_per_100` = NULLIF(@v_points_per_100, ''), `effective_from` = NULLIF(@v_effective_from, ''), `effective_to` = NULLIF(@v_effective_to, ''), `is_active` = NULLIF(@v_is_active, '');
 LOAD DATA LOCAL INFILE 'data/generated_small/loyalty_accounts.csv'
 INTO TABLE `loyalty_accounts` CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
@@ -46,8 +46,8 @@ LOAD DATA LOCAL INFILE 'data/generated_small/points_transactions.csv'
 INTO TABLE `points_transactions` CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
 LINES TERMINATED BY '\n' IGNORE 1 LINES
-(@v_transaction_id, @v_customer_id, @v_order_id, @v_transaction_type, @v_points_change, @v_transaction_date, @v_description, @v_idempotency_key, @v_related_transaction_id)
-SET `transaction_id` = NULLIF(@v_transaction_id, ''), `customer_id` = NULLIF(@v_customer_id, ''), `order_id` = NULLIF(@v_order_id, ''), `transaction_type` = NULLIF(@v_transaction_type, ''), `points_change` = NULLIF(@v_points_change, ''), `transaction_date` = NULLIF(@v_transaction_date, ''), `description` = NULLIF(@v_description, ''), `idempotency_key` = NULLIF(@v_idempotency_key, ''), `related_transaction_id` = NULLIF(@v_related_transaction_id, '');
+(@v_transaction_id, @v_customer_id, @v_order_id, @v_transaction_type, @v_points_change, @v_transaction_date, @v_description, @v_idempotency_key, @v_related_transaction_id, @v_rule_id, @v_earning_rate, @v_eligible_spend)
+SET `transaction_id` = NULLIF(@v_transaction_id, ''), `customer_id` = NULLIF(@v_customer_id, ''), `order_id` = NULLIF(@v_order_id, ''), `transaction_type` = NULLIF(@v_transaction_type, ''), `points_change` = NULLIF(@v_points_change, ''), `transaction_date` = NULLIF(@v_transaction_date, ''), `description` = NULLIF(@v_description, ''), `idempotency_key` = NULLIF(@v_idempotency_key, ''), `related_transaction_id` = NULLIF(@v_related_transaction_id, ''), `rule_id` = NULLIF(@v_rule_id, ''), `earning_rate` = NULLIF(@v_earning_rate, ''), `eligible_spend` = NULLIF(@v_eligible_spend, '');
 LOAD DATA LOCAL INFILE 'data/generated_small/point_lots.csv'
 INTO TABLE `point_lots` CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
@@ -66,6 +66,12 @@ FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
 LINES TERMINATED BY '\n' IGNORE 1 LINES
 (@v_redemption_id, @v_lot_id, @v_points_used)
 SET `redemption_id` = NULLIF(@v_redemption_id, ''), `lot_id` = NULLIF(@v_lot_id, ''), `points_used` = NULLIF(@v_points_used, '');
+LOAD DATA LOCAL INFILE 'data/generated_small/reversal_lot_allocations.csv'
+INTO TABLE `reversal_lot_allocations` CHARACTER SET utf8mb4
+FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'
+LINES TERMINATED BY '\n' IGNORE 1 LINES
+(@v_reversal_transaction_id, @v_lot_id, @v_points_removed)
+SET `reversal_transaction_id` = NULLIF(@v_reversal_transaction_id, ''), `lot_id` = NULLIF(@v_lot_id, ''), `points_removed` = NULLIF(@v_points_removed, '');
 LOAD DATA LOCAL INFILE 'data/generated_small/order_returns.csv'
 INTO TABLE `order_returns` CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' ENCLOSED BY '"' ESCAPED BY '"'

@@ -10,10 +10,13 @@ ON DUPLICATE KEY UPDATE
     points_per_100 = VALUES(points_per_100);
 
 INSERT INTO rules
-    (rule_id, rule_name, points_per_100, effective_from, is_active)
+    (rule_id, tier_id, rule_name, points_per_100, effective_from, is_active)
 VALUES
-    (1, 'Base earning rule', 1.00, '2026-01-01', TRUE)
+    (1, 1, 'Basic earning rule', 1.00, '2026-01-01', TRUE),
+    (2, 2, 'Silver earning rule', 1.50, '2026-01-01', TRUE),
+    (3, 3, 'Gold earning rule', 2.00, '2026-01-01', TRUE)
 ON DUPLICATE KEY UPDATE
+    tier_id = VALUES(tier_id),
     rule_name = VALUES(rule_name),
     points_per_100 = VALUES(points_per_100),
     effective_from = VALUES(effective_from),
